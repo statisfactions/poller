@@ -1,0 +1,27 @@
+{
+  "title": "Example set",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "choice",
+      "prompt": "How did you get here today?",
+      "options": ["Walked", "Bike or motorbike", "Bus", "Car", "Other"]
+    },
+    {
+      "id": "q2",
+      "type": "number",
+      "prompt": "How many minutes did the journey take?",
+      "min": 0,
+      "max": 120,
+      "step": 5,
+      "unit": "min"
+    },
+    {
+      "id": "q3",
+      "type": "text",
+      "prompt": "What would make the journey better?",
+      "label": "Table",
+      "hint": "One answer per table."
+    }
+  ]
+}

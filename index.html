@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poll</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="config.js"></script>
+<script src="poll.js"></script>
+</head>
+<body>
+<div class="p-wrap">
+  <div class="p-status"><span id="title"></span><span id="conn" class="muted">connecting…</span></div>
+  <div id="view"></div>
+</div>
+<script>
+(function () {
+  const P = window.Poller; if (!P) return;
+  const view = document.getElementById("view");
+  const conn = document.getElementById("conn");
+  const dev = P.deviceId();
+  let live = null, question = null, qSub = null, myAnswer = null, mySub = null;
+
+  P.db.ref(".info/connected").on("value", (s) => {
+    conn.textContent = s.val() ? "" : "reconnecting…";
+  });
+  P.base.child("meta/title").on("value", (s) => {
+    document.getElementById("title").textContent = s.val() || "";
+  });
+
+  P.base.child("live").on("value", (s) => {
+    const l = s.val() || { q: null, state: "closed", show: false };
+    const changed = !live || live.q !== l.q;
+    live = l;
+    if (changed) subscribeQuestion(l.q); else render();
+  });
+
+  function subscribeQuestion(qid) {
+    if (qSub) { qSub.off(); qSub = null; }
+    if (mySub) { mySub.off(); mySub = null; }
+    question = null; myAnswer = null;
+    if (!qid) { render(); return; }
+    qSub = P.base.child("questions/" + qid);
+    qSub.on("value", (s) => { question = s.val(); if (question) question.id = qid; render(); });
+    mySub = P.base.child("answers/" + qid + "/" + dev);
+    mySub.on("value", (s) => { myAnswer = s.val(); renderSentState(); });
+  }
+
+  function send(value, label) {
+    if (!live || !live.q || live.state !== "open") return;
+    const payload = { v: value, t: firebase.database.ServerValue.TIMESTAMP };
+    if (label) payload.label = label.slice(0, 40);
+    P.base.child("answers/" + live.q + "/" + dev).set(payload).catch((e) => {
+      const el = document.getElementById("sent");
+      if (el) { el.textContent = "Couldn't send. Is the question still open?"; el.className = "closedmsg"; }
+    });
+  }
+
+  function renderSentState() {
+    const el = document.getElementById("sent");
+    if (!el) return;
+    if (myAnswer) {
+      el.className = "sent";
+      el.textContent = live.state === "open" ? "Sent. You can change it until the question closes." : "Sent.";
+    } else {
+      el.textContent = "";
+    }
+    if (question && question.type === "choice") {
+      view.querySelectorAll(".choice button").forEach((b) => {
+        b.classList.toggle("sel", !!myAnswer && b.dataset.v === String(myAnswer.v));
+      });
+    }
+  }
+
+  function render() {
+    if (!live || !live.q) {
+      view.innerHTML = '<div class="p-wait"><div class="big">Waiting for the next question</div>Keep this page open.</div>';
+      return;
+    }
+    if (!question) { view.innerHTML = '<div class="p-wait">Loading…</div>'; return; }
+    const open = live.state === "open";
+    const esc = P.escapeHtml;
+    let h = '<div class="p-prompt">' + esc(question.prompt) + "</div>";
+    if (question.hint) h += '<div class="p-hint">' + esc(question.hint) + "</div>";
+    if (question.type === "choice") {
+      h += '<div class="choice">' + (question.options || []).map((o, i) =>
+        '<button data-v="' + i + '"' + (open ? "" : " disabled") + ">" + esc(o) + "</button>").join("") + "</div>";
+    } else if (question.type === "number") {
+      const min = +question.min || 0, max = question.max == null ? 100 : +question.max, step = +question.step || 1;
+      const start = myAnswer ? myAnswer.v : Math.round(((min + max) / 2) / step) * step;
+      h += '<div class="numrow"><input type="range" id="rng" min="' + min + '" max="' + max + '" step="' + step + '" value="' + start + '"' + (open ? "" : " disabled") + ">" +
+        '<span class="numval" id="nv">' + start + "</span><span class=\"numunit\">" + esc(question.unit || "") + "</span></div>" +
+        '<input class="numinput" id="ni" type="number" inputmode="decimal" min="' + min + '" max="' + max + '" step="' + step + '" value="' + start + '"' + (open ? "" : " disabled") + ">" +
+        '<button class="send" id="go"' + (open ? "" : " disabled") + ">Send</button>";
+    } else {
+      h += (question.label ? '<input class="labelinput" id="lab" placeholder="' + esc(question.label) + '" maxlength="40">' : "") +
+        '<textarea id="txt" maxlength="1000" placeholder="Type here"' + (open ? "" : " disabled") + "></textarea>" +
+        '<button class="send" id="go"' + (open ? "" : " disabled") + ">Send</button>";
+    }
+    h += '<div id="sent"></div>';
+    if (!open) h += '<div class="closedmsg">This question is closed. Look at the screen.</div>';
+    view.innerHTML = h;
+
+    if (question.type === "choice") {
+      view.querySelectorAll(".choice button").forEach((b) => b.addEventListener("click", () => send(+b.dataset.v)));
+    } else if (question.type === "number") {
+      const rng = document.getElementById("rng"), ni = document.getElementById("ni"), nv = document.getElementById("nv");
+      rng.addEventListener("input", () => { nv.textContent = rng.value; ni.value = rng.value; });
+      ni.addEventListener("input", () => { if (ni.value !== "") { rng.value = ni.value; nv.textContent = ni.value; } });
+      document.getElementById("go").addEventListener("click", () => {
+        const v = parseFloat(ni.value);
+        if (!isNaN(v)) send(v);
+      });
+    } else {
+      document.getElementById("go").addEventListener("click", () => {
+        const t = document.getElementById("txt").value.trim();
+        const lab = document.getElementById("lab");
+        if (t) send(t, lab ? lab.value.trim() : "");
+      });
+      try {
+        const lab = document.getElementById("lab");
+        if (lab) { lab.value = localStorage.getItem("poller-label") || ""; lab.addEventListener("input", () => localStorage.setItem("poller-label", lab.value)); }
+      } catch (e) {}
+      if (myAnswer && typeof myAnswer.v === "string") document.getElementById("txt").value = myAnswer.v;
+    }
+    renderSentState();
+  }
+})();
+</script>
+</body>
+</html>

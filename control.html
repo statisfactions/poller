@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poll control</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="config.js"></script>
+<script src="poll.js"></script>
+</head>
+<body>
+<div class="c-wrap">
+  <h1>Poll control · session <span id="sess"></span></h1>
+  <div class="c-status" id="status">signing in…</div>
+  <div class="c-row">
+    <button id="claim">Claim this session</button>
+    <a id="plink" target="_blank">participant page</a> ·
+    <a id="slink" target="_blank">screen</a>
+  </div>
+  <div class="c-row">
+    <label class="btn">Load question set (JSON) <input type="file" id="file" accept=".json,application/json" hidden></label>
+    <button id="blank">Blank screen</button>
+    <button id="export">Export CSV</button>
+  </div>
+  <details><summary class="c-status">or paste JSON</summary>
+    <textarea id="paste" placeholder='{"title": "...", "questions": [...]}'></textarea>
+    <div class="c-row"><button id="loadpaste">Load pasted set</button></div>
+  </details>
+  <div id="list"></div>
+</div>
+<script>
+(function () {
+  const P = window.Poller; if (!P) return;
+  const esc = P.escapeHtml;
+  document.getElementById("sess").textContent = P.session;
+  document.getElementById("plink").href = P.participantUrl();
+  document.getElementById("slink").href = new URL("present.html?s=" + P.session, location.href).href;
+  const status = document.getElementById("status"), list = document.getElementById("list");
+  let uid = null, owner = null, questions = [], live = { q: null, state: "closed", show: false }, counts = {};
+
+  firebase.auth().signInAnonymously().catch((e) => { status.textContent = "Sign-in failed: " + e.message + " (enable Anonymous auth in Firebase)"; });
+  firebase.auth().onAuthStateChanged((u) => { uid = u ? u.uid : null; if (uid) claim(true); updateStatus(); });
+
+  P.base.child("owner").on("value", (s) => { owner = s.val(); updateStatus(); });
+  P.base.child("questions").on("value", (s) => { questions = P.sortedQuestions(s.val()); watchCounts(); renderList(); });
+  P.base.child("live").on("value", (s) => { live = s.val() || { q: null, state: "closed", show: false }; renderList(); });
+
+  function isOwner() { return uid && owner === uid; }
+  function updateStatus() {
+    if (!uid) return;
+    status.textContent = isOwner() ? "You control this session." : owner ? "Another device owns this session. Press Claim to take over (needs the owner rule to allow it) or clear sessions/" + P.session + "/owner in the Firebase console." : "No owner yet.";
+    document.getElementById("claim").disabled = isOwner();
+  }
+  function claim(onlyIfEmpty) {
+    if (!uid) return;
+    P.base.child("owner").transaction((cur) => (cur === null || !onlyIfEmpty ? uid : undefined))
+      .catch(() => {});
+  }
+  document.getElementById("claim").addEventListener("click", () => claim(false));
+
+  const countSubs = {};
+  function watchCounts() {
+    questions.forEach((q) => {
+      if (countSubs[q.id]) return;
+      countSubs[q.id] = P.base.child("answers/" + q.id).on("value", (s) => { counts[q.id] = s.numChildren(); renderList(); });
+    });
+  }
+
+  function loadSet(obj) {
+    if (!obj || !Array.isArray(obj.questions)) { alert("Expected {title, questions: [...]}"); return; }
+    const qs = {};
+    obj.questions.forEach((q, i) => {
+      if (!q.id) { alert("Question " + (i + 1) + " has no id"); throw new Error("no id"); }
+      const id = String(q.id).replace(/[.#$\[\]\/]/g, "_");
+      qs[id] = Object.assign({}, q, { order: i }); delete qs[id].id;
+    });
+    P.base.update({ questions: qs, "meta/title": obj.title || "", live: { q: null, state: "closed", show: false } })
+      .then(() => { status.textContent = "Loaded " + obj.questions.length + " questions."; })
+      .catch((e) => alert("Couldn't write: " + e.message + ". Are you the owner?"));
+  }
+  document.getElementById("file").addEventListener("change", (ev) => {
+    const f = ev.target.files[0]; if (!f) return;
+    f.text().then((t) => loadSet(JSON.parse(t))).catch((e) => alert("Bad JSON: " + e.message));
+    ev.target.value = "";
+  });
+  document.getElementById("loadpaste").addEventListener("click", () => {
+    try { loadSet(JSON.parse(document.getElementById("paste").value)); } catch (e) { alert("Bad JSON: " + e.message); }
+  });
+
+  function setLive(patch) {
+    P.base.child("live").update(patch).catch((e) => alert("Couldn't write: " + e.message + ". Are you the owner?"));
+  }
+  document.getElementById("blank").addEventListener("click", () => P.base.child("live").set({ q: null, state: "closed", show: false }));
+
+  document.getElementById("export").addEventListener("click", () => {
+    P.base.child("answers").once("value").then((s) => {
+      const rows = [["session", "question", "device", "label", "value", "time"]];
+      const all = s.val() || {};
+      Object.keys(all).forEach((qid) => Object.keys(all[qid]).forEach((dev) => {
+        const a = all[qid][dev];
+        rows.push([P.session, qid, dev, a.label || "", a.v, a.t ? new Date(a.t).toISOString() : ""]);
+      }));
+      const csv = rows.map((r) => r.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+      a.download = "poll-" + P.session + "-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv"; a.click();
+    });
+  });
+
+  function renderList() {
+    list.innerHTML = questions.map((q) => {
+      const isLive = live.q === q.id, open = isLive && live.state === "open", show = isLive && live.show;
+      return '<div class="q' + (isLive ? " live" : "") + '" data-id="' + esc(q.id) + '">' +
+        '<div class="qp">' + esc(q.prompt) + "</div>" +
+        '<div class="qm">' + esc(q.type) + " · " + (counts[q.id] || 0) + " answers" + (isLive ? (open ? " · OPEN" : " · closed") + (show ? " · showing" : "") : "") + "</div>" +
+        '<div class="acts">' +
+        '<button data-a="open" class="' + (open ? "on" : "") + '">Open</button>' +
+        '<button data-a="show" class="' + (show ? "on" : "") + '">' + (show ? "Hide" : "Show") + "</button>" +
+        '<button data-a="close"' + (isLive && !open ? ' class="on"' : "") + ">Close</button>" +
+        '<button data-a="clear" class="danger">Clear</button>' +
+        "</div></div>";
+    }).join("") || '<p class="c-status">No questions loaded.</p>';
+    list.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const id = b.closest(".q").dataset.id, a = b.dataset.a;
+      if (a === "open") setLive({ q: id, state: "open", show: live.q === id ? !!live.show : false });
+      else if (a === "show") { if (live.q !== id) setLive({ q: id, state: "closed", show: true }); else setLive({ show: !live.show }); }
+      else if (a === "close") { if (live.q !== id) setLive({ q: id, state: "closed", show: false }); else setLive({ state: "closed" }); }
+      else if (a === "clear") { if (confirm("Delete all answers to this question?")) P.base.child("answers/" + id).remove().catch((e) => alert(e.message)); }
+    }));
+  }
+})();
+</script>
+</body>
+</html>
