@@ -14,9 +14,10 @@
 <body>
 <div class="c-wrap">
   <h1>Poll control · session <span id="sess"></span></h1>
-  <div class="c-status" id="status">signing in…</div>
+  <div class="c-status" id="status">not signed in</div>
   <div class="c-row">
-    <button id="claim">Claim this session</button>
+    <button id="signin" class="primary">Sign in with Google</button>
+    <button id="signout">Sign out</button>
     <a id="plink" target="_blank">participant page</a> ·
     <a id="slink" target="_blank">screen</a>
   </div>
@@ -39,27 +40,29 @@
   document.getElementById("plink").href = P.participantUrl();
   document.getElementById("slink").href = new URL("present.html?s=" + P.session, location.href).href;
   const status = document.getElementById("status"), list = document.getElementById("list");
-  let uid = null, owner = null, questions = [], live = { q: null, state: "closed", show: false }, counts = {};
+  let user = null, isAdmin = false, questions = [], live = { q: null, state: "closed", show: false }, counts = {};
 
-  firebase.auth().signInAnonymously().catch((e) => { status.textContent = "Sign-in failed: " + e.message + " (enable Anonymous auth in Firebase)"; });
-  firebase.auth().onAuthStateChanged((u) => { uid = u ? u.uid : null; if (uid) claim(true); updateStatus(); });
+  document.getElementById("signin").addEventListener("click", () => {
+    firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider())
+      .catch((e) => { status.textContent = "Sign-in failed: " + e.message; });
+  });
+  document.getElementById("signout").addEventListener("click", () => firebase.auth().signOut());
+  firebase.auth().onAuthStateChanged((u) => {
+    user = u; isAdmin = false;
+    if (!u) { status.textContent = "Not signed in."; return; }
+    status.textContent = "Checking…";
+    P.db.ref("admins/" + u.uid).once("value")
+      .then((s) => { isAdmin = s.val() === true; updateStatus(); })
+      .catch(() => { isAdmin = false; updateStatus(); });
+  });
+  function updateStatus() {
+    status.textContent = isAdmin
+      ? "Signed in as " + (user.email || user.uid) + ". You can control sessions."
+      : "Signed in as " + (user.email || "?") + " but not an admin. In the Firebase console → Realtime Database, add admins/" + user.uid + " = true, then reload.";
+  }
 
-  P.base.child("owner").on("value", (s) => { owner = s.val(); updateStatus(); });
   P.base.child("questions").on("value", (s) => { questions = P.sortedQuestions(s.val()); watchCounts(); renderList(); });
   P.base.child("live").on("value", (s) => { live = s.val() || { q: null, state: "closed", show: false }; renderList(); });
-
-  function isOwner() { return uid && owner === uid; }
-  function updateStatus() {
-    if (!uid) return;
-    status.textContent = isOwner() ? "You control this session." : owner ? "Another device owns this session. Press Claim to take over (needs the owner rule to allow it) or clear sessions/" + P.session + "/owner in the Firebase console." : "No owner yet.";
-    document.getElementById("claim").disabled = isOwner();
-  }
-  function claim(onlyIfEmpty) {
-    if (!uid) return;
-    P.base.child("owner").transaction((cur) => (cur === null || !onlyIfEmpty ? uid : undefined))
-      .catch(() => {});
-  }
-  document.getElementById("claim").addEventListener("click", () => claim(false));
 
   const countSubs = {};
   function watchCounts() {
@@ -79,7 +82,7 @@
     });
     P.base.update({ questions: qs, "meta/title": obj.title || "", live: { q: null, state: "closed", show: false } })
       .then(() => { status.textContent = "Loaded " + obj.questions.length + " questions."; })
-      .catch((e) => alert("Couldn't write: " + e.message + ". Are you the owner?"));
+      .catch((e) => alert("Couldn't write: " + e.message + ". Are you signed in as an admin?"));
   }
   document.getElementById("file").addEventListener("change", (ev) => {
     const f = ev.target.files[0]; if (!f) return;
@@ -91,7 +94,7 @@
   });
 
   function setLive(patch) {
-    P.base.child("live").update(patch).catch((e) => alert("Couldn't write: " + e.message + ". Are you the owner?"));
+    P.base.child("live").update(patch).catch((e) => alert("Couldn't write: " + e.message + ". Are you signed in as an admin?"));
   }
   document.getElementById("blank").addEventListener("click", () => P.base.child("live").set({ q: null, state: "closed", show: false }));
 

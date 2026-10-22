@@ -1,24 +1,15 @@
 {
   "rules": {
+    "admins": {
+      ".read": "auth != null && data.child(auth.uid).exists()",
+      ".write": false
+    },
     "sessions": {
       "$s": {
         ".read": true,
-        "owner": {
-          ".write": "auth != null && (!data.exists() || data.val() === auth.uid)",
-          ".validate": "newData.isString()"
-        },
-        "meta": {
-          ".write": "auth != null && root.child('sessions').child($s).child('owner').val() === auth.uid"
-        },
-        "questions": {
-          ".write": "auth != null && root.child('sessions').child($s).child('owner').val() === auth.uid"
-        },
-        "live": {
-          ".write": "auth != null && root.child('sessions').child($s).child('owner').val() === auth.uid"
-        },
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
         "answers": {
           "$q": {
-            ".write": "auth != null && root.child('sessions').child($s).child('owner').val() === auth.uid",
             "$dev": {
               ".write": "root.child('sessions').child($s).child('live').child('q').val() === $q && root.child('sessions').child($s).child('live').child('state').val() === 'open'",
               ".validate": "newData.hasChildren(['v', 't']) && (newData.child('v').isNumber() || (newData.child('v').isString() && newData.child('v').val().length <= 1000)) && (!newData.hasChild('label') || (newData.child('label').isString() && newData.child('label').val().length <= 40))"

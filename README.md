@@ -21,9 +21,11 @@ Question types: `number` (slider; results as a dot plot), `choice` (one of n; ba
 1. **Firebase.** At <https://console.firebase.google.com> create a project (Spark plan, no card).
    - Build → Realtime Database → Create database (any region, start in locked mode).
    - Rules tab: paste `database.rules.json` and publish.
-   - Build → Authentication → Sign-in method → enable **Anonymous**. The presenter's control
-     page signs in anonymously and claims each session the first time it opens it; participants
-     don't sign in at all.
+   - Build → Authentication → Sign-in method → enable **Google**. The presenter signs in to the
+     control page with a Google account; participants don't sign in at all.
+   - First sign-in: the control page shows your user id and says you are not an admin yet. In
+     Realtime Database → Data, add a key `admins` with a child `<that uid>: true`. Only ids
+     listed there can load question sets or change what is live; add a colleague the same way.
    - Project settings → Your apps → Web app (</>): register one; copy the `firebaseConfig`
      object into `config.js`. These values are meant to be public; the rules do the protecting.
    - Authentication → Settings → Authorized domains: add `USERNAME.github.io`.
@@ -33,10 +35,8 @@ Question types: `number` (slider; results as a dot plot), `choice` (one of n; ba
 
 ## Running a session
 
-1. Open `control.html?s=NAME` (pick any short session name; one per session or one all week).
-   The first device that opens the control page for a session becomes its owner. To move to
-   another device, open the control page there and press *Claim*; or delete
-   `sessions/NAME/owner` in the Firebase console.
+1. Open `control.html?s=NAME` (pick any short session name; one per session or one all week)
+   and sign in with Google. Any device works, as long as the account is in `admins`.
 2. Load a question set (a JSON file like `example-questions.json`). Loading replaces the
    session's questions; answers are kept per question id.
 3. Put `present.html?s=NAME` on the screen. It shows the participant link and a QR code.
