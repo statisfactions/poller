@@ -26,7 +26,7 @@
   const esc = P.escapeHtml;
   const body = document.getElementById("body"), promptEl = document.getElementById("prompt"), countEl = document.getElementById("count");
   document.getElementById("url").textContent = P.shortUrl();
-  P.drawQr(document.getElementById("qr"), P.participantUrl(), 110);
+  P.drawQr(document.getElementById("qr"), P.participantUrl(), 170);
   P.base.child("meta/title").on("value", (s) => { document.getElementById("title").textContent = s.val() || ""; });
 
   let live = null, question = null, answers = {}, qSub = null, aSub = null;
@@ -55,7 +55,8 @@
       countEl.textContent = "";
       document.getElementById("join").classList.add("hidden");
       body.innerHTML = '<div class="joinpage"><div class="sub">Open this link on your phone</div><div class="url">' + esc(P.shortUrl()) + '</div><div id="bigqr"></div></div>';
-      P.drawQr(document.getElementById("bigqr"), P.participantUrl(), 280);
+      // as big as the screen allows: most of the height below the link
+      P.drawQr(document.getElementById("bigqr"), P.participantUrl(), Math.max(280, Math.min(window.innerHeight - 320, window.innerWidth * 0.5)));
       return;
     }
     document.getElementById("join").classList.remove("hidden");
