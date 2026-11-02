@@ -29,6 +29,11 @@ Question types: `number` (slider; results as a dot plot), `choice` (one of n; ba
    - Project settings → Your apps → Web app (</>): register one; copy the `firebaseConfig`
      object into `config.js`. These values are meant to be public; the rules do the protecting.
    - Authentication → Settings → Authorized domains: add `USERNAME.github.io`.
+   - Google Cloud console → APIs & Services → Credentials → "Browser key (auto created by
+     Firebase)": restrict websites to `https://USERNAME.github.io/*` **and**
+     `https://PROJECT.firebaseapp.com/*` (the Google sign-in popup runs there; leaving it out
+     gives "the requested action is invalid"), and APIs to Identity Toolkit and Token Service.
+     GitHub will flag the committed key as a secret; it is a public web key, so close the alert.
 2. **GitHub Pages.** Repo settings → Pages → deploy from branch `main`, folder `/ (root)`.
    Commit `config.js` with the real values and push. The pages appear at
    `https://USERNAME.github.io/poller/`.
