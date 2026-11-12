@@ -62,6 +62,7 @@
     document.getElementById("join").classList.remove("hidden");
     if (!question) { promptEl.textContent = ""; body.innerHTML = ""; return; }
     promptEl.textContent = question.prompt;
+    if (question.type === "cards") { renderProgress(); return; }
     countEl.textContent = n + (n === 1 ? " answer" : " answers") + (live.state === "open" ? "" : " · closed");
     if (!live.show) {
       body.innerHTML = '<div class="s-count"><div class="n">' + n + '</div>' + (n === 1 ? "answer" : "answers") + (live.state === "open" ? " so far" : "") + "</div>";
@@ -71,6 +72,20 @@
     if (question.type === "choice") renderBars(vals, n);
     else if (question.type === "number") renderDots(vals, n);
     else renderCards(vals);
+  }
+
+  // cards: progress only, never the values (phones answer at their own pace)
+  function renderProgress() {
+    const total = P.toArr(question.first).filter((r) => r != null).length + Math.min(+question.draw || 0, P.toArr(question.bank).filter((r) => r != null).length);
+    let started = 0, finished = 0;
+    Object.values(answers).forEach((a) => {
+      const k = typeof a.v === "string" ? a.v.split(";").filter((x) => x.indexOf("=") > 0).length : 0;
+      if (k) started++;
+      if (k && k >= total) finished++;
+    });
+    countEl.textContent = started + " started · " + finished + " finished" + (live.state === "open" ? "" : " · closed");
+    body.innerHTML = '<div class="s-count two"><div><div class="n">' + started + "</div>started</div>" +
+      '<div><div class="n">' + finished + "</div>finished all " + total + "</div></div>";
   }
 
   function renderBars(vals, n) {

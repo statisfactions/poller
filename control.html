@@ -117,8 +117,8 @@
     list.innerHTML = questions.map((q) => {
       const isLive = live.q === q.id, open = isLive && live.state === "open", show = isLive && live.show;
       return '<div class="q' + (isLive ? " live" : "") + '" data-id="' + esc(q.id) + '">' +
-        '<div class="qp">' + esc(q.prompt) + "</div>" +
-        '<div class="qm">' + esc(q.type) + " · " + (counts[q.id] || 0) + " answers" + (isLive ? (open ? " · OPEN" : " · closed") + (show ? " · showing" : "") : "") + "</div>" +
+        '<div class="qp"><b>' + (questions.indexOf(q) + 1) + ".</b> " + esc(q.prompt) + "</div>" +
+        '<div class="qm">' + (q.tag ? "<b>" + esc(q.tag) + "</b> · " : "") + esc(q.id) + " · " + esc(q.type) + " · " + (counts[q.id] || 0) + " answers" + (isLive ? (open ? " · OPEN" : " · closed") + (show ? " · showing" : "") : "") + "</div>" +
         '<div class="acts">' +
         '<button data-a="open" class="' + (open ? "on" : "") + '">Open</button>' +
         '<button data-a="show" class="' + (show ? "on" : "") + '">' + (show ? "Hide" : "Show") + "</button>" +

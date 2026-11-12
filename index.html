@@ -21,7 +21,7 @@
   const view = document.getElementById("view");
   const conn = document.getElementById("conn");
   const dev = P.deviceId();
-  let live = null, question = null, qSub = null, myAnswer = null, mySub = null;
+  let live = null, question = null, qSub = null, myAnswer = null, mySub = null, myLoaded = false, cs = null;
 
   P.db.ref(".info/connected").on("value", (s) => {
     conn.textContent = s.val() ? "" : "reconnecting…";
@@ -40,12 +40,16 @@
   function subscribeQuestion(qid) {
     if (qSub) { qSub.off(); qSub = null; }
     if (mySub) { mySub.off(); mySub = null; }
-    question = null; myAnswer = null;
+    question = null; myAnswer = null; myLoaded = false; cs = null;
     if (!qid) { render(); return; }
     qSub = P.base.child("questions/" + qid);
     qSub.on("value", (s) => { question = s.val(); if (question) question.id = qid; render(); });
     mySub = P.base.child("answers/" + qid + "/" + dev);
-    mySub.on("value", (s) => { myAnswer = s.val(); renderSentState(); });
+    mySub.on("value", (s) => {
+      myAnswer = s.val();
+      if (!myLoaded) { myLoaded = true; if (question && question.type === "cards") { render(); return; } }
+      renderSentState();
+    });
   }
 
   function send(value, label) {
@@ -60,7 +64,7 @@
 
   function renderSentState() {
     const el = document.getElementById("sent");
-    if (!el) return;
+    if (!el || (question && question.type === "cards")) return;
     if (myAnswer) {
       el.className = "sent";
       el.textContent = live.state === "open" ? "Sent. You can change it until the question closes." : "Sent.";
@@ -80,6 +84,7 @@
       return;
     }
     if (!question) { view.innerHTML = '<div class="p-wait">Loading…</div>'; return; }
+    if (question.type === "cards") { renderCardsQ(); return; }
     const open = live.state === "open";
     const esc = P.escapeHtml;
     let h = '<div class="p-prompt">' + esc(question.prompt) + "</div>";
@@ -126,6 +131,207 @@
       if (myAnswer && typeof myAnswer.v === "string") document.getElementById("txt").value = myAnswer.v;
     }
     renderSentState();
+  }
+
+  /* ---------- cards: one item at a time, the whole answer as "id=value;id=value;…" ---------- */
+  function seededRandom(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return function () {
+      h = (h + 0x6D2B79F5) | 0;
+      let t = Math.imul(h ^ (h >>> 15), 1 | h);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function cardsState() {
+    if (cs && cs.qid === question.id) return cs;
+    const rows = (x) => P.toArr(x).filter((r) => r != null).map((r) => {
+      const a = P.toArr(r);
+      return { id: String(a[0]).replace(/[=;\s]/g, "_"), vals: a.slice(1) };
+    });
+    const first = rows(question.first), seen = {};
+    first.forEach((r) => { seen[r.id] = true; });
+    const bank = rows(question.bank).filter((r) => !seen[r.id] && (seen[r.id] = true));
+    const rnd = seededRandom(dev + "|" + question.id), n = Math.min(+question.draw || 0, bank.length);
+    for (let i = 0; i < n; i++) { const j = i + Math.floor(rnd() * (bank.length - i)); const t = bank[i]; bank[i] = bank[j]; bank[j] = t; }
+    let list = first.concat(bank.slice(0, n));
+    if (question.spread && first.length) {
+      // "first" rows go to seeded positions, never position 1 unless the list is only first rows
+      const F = first.length, L = list.length, drawn = bank.slice(0, n), fs = first.slice(), slots = [];
+      for (let i = F - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = fs[i]; fs[i] = fs[j]; fs[j] = t; }
+      for (let p = L > F ? 1 : 0; p < L; p++) slots.push(p);
+      for (let i = 0; i < F; i++) { const j = i + Math.floor(rnd() * (slots.length - i)); const t = slots[i]; slots[i] = slots[j]; slots[j] = t; }
+      const at = {}; slots.slice(0, F).forEach((p, i) => { at[p] = fs[i]; });
+      list = []; let d = 0;
+      for (let p = 0; p < L; p++) list.push(at[p] || drawn[d++]);
+    }
+    cs = { qid: question.id, list, vals: {}, drafts: {}, pos: 0, editing: false, msg: "", status: "" };
+    if (myAnswer && typeof myAnswer.v === "string") {
+      myAnswer.v.split(";").forEach((kv) => {
+        const k = kv.indexOf("=");
+        if (k > 0) cs.vals[kv.slice(0, k)] = kv.slice(k + 1);
+      });
+    }
+    const firstGap = cs.list.findIndex((r) => cs.vals[r.id] == null);
+    cs.pos = firstGap < 0 ? cs.list.length : firstGap;
+    const done = cs.list.filter((r) => cs.vals[r.id] != null).length;
+    if (done) cs.status = "Saved " + done + " of " + cs.list.length + ".";
+    return cs;
+  }
+
+  function cardsString(c) {
+    return c.list.filter((r) => c.vals[r.id] != null).map((r) => r.id + "=" + c.vals[r.id]).join(";");
+  }
+
+  function setCardStatus(text, cls) {
+    cs.status = text; cs.statusCls = cls || "";
+    const el = document.getElementById("cstat");
+    if (el) { el.textContent = text; el.className = "cq-status " + (cls || ""); }
+  }
+
+  function saveCards() {
+    const c = cs, v = cardsString(c), n = c.list.filter((r) => c.vals[r.id] != null).length;
+    if (v.length > 1000) { setCardStatus("Too long to save. Tell the presenter.", "bad"); return; }
+    if (!live || live.q !== c.qid || live.state !== "open") return;
+    setCardStatus("Saving…");
+    P.base.child("answers/" + c.qid + "/" + dev).set({ v, t: firebase.database.ServerValue.TIMESTAMP })
+      .then(() => { if (cs === c) setCardStatus("Saved " + n + " of " + c.list.length + "."); })
+      .catch(() => { if (cs === c) setCardStatus("Couldn't save. Is the question still open?", "bad"); });
+  }
+
+  function unitText() { const u = question.unit || ""; return !u || u === "%" ? u : " " + u; }
+
+  function parseCardValue(text) {
+    const q = question, t = text.trim().replace(",", "."), unit = unitText();
+    const min = q.min == null ? -Infinity : +q.min, max = q.max == null ? Infinity : +q.max;
+    if (t === "") return { err: "Type a number first." };
+    if (!/^-?\d+(\.\d+)?$/.test(t)) return { err: "Numbers only, please." };
+    const x = +t;
+    if (x < min || x > max) return { err: "Please enter a number from " + q.min + " to " + q.max + unit + "." };
+    return { v: String(x) };
+  }
+
+  // slider for cards with "input": "slider": no value (no thumb) until the first touch
+  function sliderSpec() {
+    const q = question, min = q.min == null ? 0 : +q.min, max = q.max == null ? 100 : +q.max, step = +q.step > 0 ? +q.step : 1;
+    const dec = (String(step).split(".")[1] || "").length, K = Math.max(1, Math.floor((max - min) / step + 1e-9));
+    const at = (k) => String(+(min + k * step).toFixed(dec));
+    const frac = (v) => Math.min(1, Math.max(0, (+v - min) / ((max - min) || 1)));
+    return { min, max, step, K, at, frac };
+  }
+
+  function sliderHtml(cur) {
+    const sp = sliderSpec(), esc = P.escapeHtml, ticks = [];
+    [0, 1, 2, 3, 4].forEach((i) => { const v = sp.at(Math.round(i * sp.K / 4)); if (ticks.indexOf(v) < 0) ticks.push(v); });
+    const u = question.unit === "%" ? "%" : "";
+    return '<div class="cq-sl' + (cur === "" ? " empty" : "") + '" id="csl"><div class="cq-slv" id="slv"></div>' +
+      '<div class="cq-slt" id="slt" role="slider" tabindex="0" aria-label="' + esc(question.prompt) + '" aria-valuemin="' + sp.min + '" aria-valuemax="' + sp.max + '">' +
+      '<div class="rail"><div class="fill"></div><div class="thumb"></div></div></div>' +
+      '<div class="cq-slk">' + ticks.map((v) => '<span style="left:' + (100 * sp.frac(v)) + '%">' + esc(v) + u + "</span>").join("") + "</div></div>";
+  }
+
+  function renderCardsQ() {
+    if (!myLoaded) { view.innerHTML = '<div class="p-wait">Loading…</div>'; return; }
+    const c = cardsState(), esc = P.escapeHtml, open = live.state === "open", N = c.list.length;
+    if (!N) { view.innerHTML = '<div class="p-wait">This question has no items.</div>'; return; }
+    const review = !open || c.pos >= N;
+    const key = [c.qid, review ? "review" : c.pos, c.editing, open].join("|");
+    const w = view.querySelector(".cq");
+    if (w && w.dataset.key === key) return; // nothing visible changed (e.g. Show toggled): keep the input and keyboard as they are
+    const slider = question.input === "slider";
+    const label = question.itemLabel || "Item", fields = P.toArr(question.fields), unit = unitText();
+    const facts = (r) => fields.map((f, i) => [f, r.vals[i] == null ? "" : r.vals[i]]);
+    let h = '<div class="cq" data-key="' + esc(key) + '">';
+    if (review) {
+      const done = c.list.filter((r) => c.vals[r.id] != null).length;
+      h += '<div class="p-prompt">' + esc(question.prompt) + "</div>";
+      if (open && done === N) h += '<div class="cq-done">Done. Look up when you are ready.</div><div class="p-hint">Tap a value to change it.</div>';
+      h += '<div class="cq-rev">' + c.list.map((r, i) =>
+        '<button data-i="' + i + '"' + (open ? "" : " disabled") + '><span class="l">' + esc(label) + " " + (i + 1) +
+        "<small>" + facts(r).map((f) => esc(f[1])).join(" · ") + "</small></span>" +
+        '<span class="v">' + (c.vals[r.id] == null ? "–" : esc(c.vals[r.id]) + esc(unit)) + "</span></button>").join("") + "</div>";
+      if (!open) h += '<div class="closedmsg">This question is closed. Look at the screen.</div>';
+    } else {
+      const r = c.list[c.pos], cur = c.drafts[r.id] != null ? c.drafts[r.id] : (c.vals[r.id] != null ? c.vals[r.id] : "");
+      h += '<div class="cq-n">' + esc(label) + " " + (c.pos + 1) + " of " + N + "</div>" +
+        '<div class="cq-bar"><div style="width:' + (100 * c.pos / N) + '%"></div></div>' +
+        '<dl class="cq-facts">' + facts(r).map((f) => "<dt>" + esc(f[0]) + "</dt><dd>" + esc(f[1]) + "</dd>").join("") + "</dl>" +
+        '<div class="p-prompt">' + esc(question.prompt) + "</div>" +
+        (question.hint ? '<div class="p-hint">' + esc(question.hint) + "</div>" : "") +
+        (slider ? sliderHtml(cur) :
+        '<div class="cq-in"><input id="cv" type="text" inputmode="numeric" autocomplete="off" enterkeyhint="next" maxlength="12" placeholder="Type a number" value="' + esc(cur) + '">' +
+        (question.unit ? '<span class="numunit">' + esc(question.unit) + "</span>" : "") + "</div>") +
+        '<div class="cq-msg" id="cmsg"></div>' +
+        '<div class="cq-nav"><button id="cback"' + (c.pos === 0 && !c.editing ? " disabled" : "") + ">" + (c.editing ? "Cancel" : "Back") + "</button>" +
+        '<button id="cnext" class="send">' + (c.editing ? "Save" : "Next") + "</button></div>";
+    }
+    h += '<div class="cq-status ' + (c.statusCls || "") + '" id="cstat">' + esc(c.status || "") + "</div></div>";
+    view.innerHTML = h;
+
+    if (review) {
+      view.querySelectorAll(".cq-rev button").forEach((b) => b.addEventListener("click", () => {
+        if (live.state !== "open") return;
+        c.pos = +b.dataset.i; c.editing = true; delete c.drafts[c.list[c.pos].id]; render();
+      }));
+      return;
+    }
+    const inp = document.getElementById("cv"), msg = document.getElementById("cmsg"), id = c.list[c.pos].id;
+    if (inp) inp.addEventListener("input", () => { c.drafts[id] = inp.value; msg.textContent = ""; });
+    const sliderValue = () => c.drafts[id] != null ? c.drafts[id] : c.vals[id];
+    if (slider) wireSlider(c, id, msg, () => next());
+    const next = () => {
+      const p = slider ? (sliderValue() == null ? { err: "Slide to choose a number first." } : { v: sliderValue() }) : parseCardValue(inp.value);
+      if (p.err) { msg.textContent = p.err; return; }
+      c.vals[id] = p.v; delete c.drafts[id];
+      if (c.editing) { c.editing = false; c.pos = N; }
+      else c.pos++;
+      saveCards(); render(); window.scrollTo(0, 0);
+    };
+    document.getElementById("cnext").addEventListener("click", next);
+    if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); next(); } });
+    document.getElementById("cback").addEventListener("click", () => {
+      if (c.editing) { c.editing = false; delete c.drafts[id]; c.pos = N; }
+      else if (c.pos > 0) c.pos--;
+      render(); window.scrollTo(0, 0);
+    });
+  }
+
+  function wireSlider(c, id, msg, next) {
+    const sp = sliderSpec(), box = document.getElementById("csl"), trk = document.getElementById("slt");
+    const rail = trk.querySelector(".rail"), fill = trk.querySelector(".fill"), thumb = trk.querySelector(".thumb");
+    const out = document.getElementById("slv"), unit = unitText();
+    const show = () => {
+      const v = c.drafts[id] != null ? c.drafts[id] : c.vals[id];
+      box.classList.toggle("empty", v == null);
+      out.innerHTML = v == null ? "–" : P.escapeHtml(v) + '<span class="u">' + P.escapeHtml(unit) + "</span>";
+      if (v == null) { trk.removeAttribute("aria-valuenow"); return; }
+      const pc = 100 * sp.frac(v) + "%";
+      fill.style.width = pc; thumb.style.left = pc;
+      trk.setAttribute("aria-valuenow", v); trk.setAttribute("aria-valuetext", v + unit);
+    };
+    const set = (k) => { c.drafts[id] = sp.at(Math.min(sp.K, Math.max(0, k))); msg.textContent = ""; show(); };
+    const setFromX = (x) => { const r = rail.getBoundingClientRect(); set(Math.round((x - r.left) / (r.width || 1) * sp.K)); };
+    let drag = null;
+    trk.addEventListener("pointerdown", (e) => {
+      if (e.button > 0) return;
+      e.preventDefault(); drag = e.pointerId;
+      try { trk.setPointerCapture(e.pointerId); } catch (err) {}
+      setFromX(e.clientX);
+    });
+    trk.addEventListener("pointermove", (e) => { if (drag === e.pointerId) { e.preventDefault(); setFromX(e.clientX); } });
+    const end = (e) => { if (drag === e.pointerId) drag = null; };
+    trk.addEventListener("pointerup", end); trk.addEventListener("pointercancel", end);
+    trk.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+    trk.addEventListener("keydown", (e) => {
+      const v = c.drafts[id] != null ? c.drafts[id] : c.vals[id];
+      if (e.key === "Enter") { e.preventDefault(); next(); return; }
+      const d = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+      if (!d || v == null) return; // keys only move a value already chosen: no default to anchor on
+      e.preventDefault(); set(Math.round((+v - sp.min) / sp.step) + d);
+    });
+    show();
   }
 })();
 </script>

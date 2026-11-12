@@ -47,11 +47,20 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
+  // Firebase returns a stored array as an array, or as an object keyed by index if it has gaps.
+  function toArr(x) {
+    if (Array.isArray(x)) return x;
+    if (!x || typeof x !== "object") return [];
+    const out = [];
+    Object.keys(x).forEach((k) => { if (/^\d+$/.test(k)) out[+k] = x[k]; });
+    return out;
+  }
+
   function drawQr(el, text, size) {
     if (!window.QRCode) return;
     el.innerHTML = "";
     new QRCode(el, { text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
   }
 
-  window.Poller = { db, base, session, deviceId, participantUrl, shortUrl, sortedQuestions, escapeHtml, drawQr };
+  window.Poller = { db, base, session, deviceId, participantUrl, shortUrl, sortedQuestions, escapeHtml, drawQr, toArr };
 })();

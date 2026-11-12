@@ -14,7 +14,24 @@ Three pages:
   open, show, close and clear questions, export all answers as CSV.
 
 Question types: `number` (slider; results as a dot plot), `choice` (one of n; bars), `text`
-(free text, optionally with a label such as a table name; cards). See `example-questions.json`.
+(free text, optionally with a label such as a table name; cards), `cards` (see below). See
+`example-questions.json`.
+
+Any question may carry a `tag`: a short note shown only on the control page, next to the
+question's number and id (phones and the screen never show it).
+
+`cards` asks for one number per item, one item at a time, each person at their own pace. Each
+row of `first` and `bank` is `[id, value, value, …]`, the values lining up with `fields`. A phone
+gets the `first` rows in order, then `draw` rows picked at random from `bank` (fixed per phone, so
+a reload gives the same list); with `"spread": true` the `first` rows land at random places in the
+list instead (never first, different per phone, still fixed per phone). The input is a typed box
+by default; `"input": "slider"` gives a number line from `min` to `max` in steps of `step`
+(default 1; `min` and `max` default to 0 and 100). Either way it starts empty: the slider shows no
+thumb and no value until touched, so there is no default to anchor on. Typed values outside
+`min`..`max` are refused. `hint` is optional. Each Next saves the whole answer as one string
+`id=value;id=value;…` (answered items only, at most 1000 characters, so keep ids short); a reload
+resumes from it. The screen shows only how many phones have started and how many have finished,
+never the values; the CSV carries the strings.
 
 ## Set-up (once)
 

@@ -5,7 +5,13 @@
       "id": "q1",
       "type": "choice",
       "prompt": "How did you get here today?",
-      "options": ["Walked", "Bike or motorbike", "Bus", "Car", "Other"]
+      "options": [
+        "Walked",
+        "Bike or motorbike",
+        "Bus",
+        "Car",
+        "Other"
+      ]
     },
     {
       "id": "q2",
@@ -22,6 +28,49 @@
       "prompt": "What would make the journey better?",
       "label": "Table",
       "hint": "One answer per table."
+    },
+    {
+      "id": "q4",
+      "type": "cards",
+      "prompt": "What did it sell for?",
+      "hint": "The average house here sold for 250 thousand. Decide alone.",
+      "itemLabel": "House",
+      "fields": ["Floor area (m²)", "Bedrooms", "Distance to center (km)", "Garden"],
+      "first": [
+        ["h1", 75, 3, 3.9, "yes"],
+        ["h2", 45, 2, 1.2, "yes"]
+      ],
+      "bank": [
+        ["h3", 110, 3, 1.1, "no"],
+        ["h4", 45, 1, 5.4, "yes"],
+        ["h5", 180, 5, 9.0, "yes"],
+        ["h6", 110, 3, 0.8, "yes"],
+        ["h7", 45, 1, 1.5, "no"],
+        ["h8", 60, 2, 5.6, "yes"],
+        ["h9", 45, 1, 6.2, "no"],
+        ["h10", 45, 1, 0.9, "yes"],
+        ["h11", 110, 3, 6.6, "no"],
+        ["h12", 180, 5, 5.7, "no"],
+        ["h13", 75, 2, 7.6, "yes"],
+        ["h14", 45, 1, 5.1, "no"],
+        ["h15", 140, 4, 5.9, "yes"],
+        ["h16", 45, 1, 1.8, "no"],
+        ["h17", 60, 2, 4.2, "yes"],
+        ["h18", 180, 5, 7.6, "no"],
+        ["h19", 75, 2, 5.8, "no"],
+        ["h20", 45, 2, 9.0, "no"],
+        ["h21", 140, 4, 0.9, "no"],
+        ["h22", 140, 4, 6.6, "no"],
+        ["h23", 75, 2, 8.5, "no"],
+        ["h24", 45, 2, 3.6, "yes"]
+      ],
+      "draw": 4,
+      "spread": true,
+      "input": "slider",
+      "min": 0,
+      "max": 600,
+      "step": 10,
+      "unit": "thousand"
     }
   ]
 }
